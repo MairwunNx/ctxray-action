@@ -1,0 +1,59 @@
+name: ctxray
+description: Test what your agent harness loads – rules, skills, MCP servers, context budgets – with ctxray.
+author: Pavel Erokhin
+branding:
+  icon: layers
+  color: purple
+
+inputs:
+  version:
+    description: The ctxray version, like 0.2.0. The action's own version when empty.
+    default: ""
+  args:
+    description: What to run, as arguments to ctxray
+    default: test
+  working-directory:
+    description: The project's folder
+    default: .
+  cache:
+    description: Cache the harnesses ctxray.lock pins between runs
+    default: "true"
+  download-base:
+    description: Where the releases live, for a mirror. Same as CTXRAY_DOWNLOAD_BASE in install.sh.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install ctxray
+      shell: bash
+      env:
+        CTXRAY_VERSION: ${{ inputs.version || '0.1.0' }}
+        CTXRAY_DOWNLOAD_BASE: ${{ inputs.download-base }}
+        CTXRAY_INSTALL_DIR: ${{ runner.temp }}/ctxray
+      run: |
+        [ -n "$CTXRAY_DOWNLOAD_BASE" ] || unset CTXRAY_DOWNLOAD_BASE
+        if [ "$RUNNER_OS" = Windows ]; then
+          pwsh -NoProfile -Command "irm \"${CTXRAY_DOWNLOAD_BASE:-https://github.com/MairwunNx/ctxray/releases}/download/v$CTXRAY_VERSION/install.ps1\" | iex"
+        else
+          curl -fsSL "${CTXRAY_DOWNLOAD_BASE:-https://github.com/MairwunNx/ctxray/releases}/download/v$CTXRAY_VERSION/install.sh" | sh
+        fi
+        echo "$CTXRAY_INSTALL_DIR" >> "$GITHUB_PATH"
+    - name: Locate the harness cache
+      id: cache-dir
+      if: inputs.cache == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: echo "dir=$("$RUNNER_TEMP/ctxray/ctxray" cache dir)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      if: inputs.cache == 'true'
+      with:
+        path: ${{ steps.cache-dir.outputs.dir }}
+        key: ctxray-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(format('{0}/ctxray.lock', inputs.working-directory)) }}
+    - name: Run ctxray
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CTXRAY_ARGS: ${{ inputs.args }}
+      # Unquoted on purpose: the arguments split on spaces.
+      run: ctxray $CTXRAY_ARGS
